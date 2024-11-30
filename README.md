@@ -33,3 +33,7 @@ python3 saml_tool.py --extract <file_path>
 python3 saml_tool.py --replace <old_string> <new_string> <file_path>
 ```
 
+##### To strip signature in between `<ds:SignatureValue></ds:SignatureValue>` tags
+```bash
+python3 saml_tool.py --strip-signature-value <file_path>
+```

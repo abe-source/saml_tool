@@ -2,6 +2,7 @@ import base64
 import sys
 import argparse
 import xml.etree.ElementTree as ET
+import re
 
 def decode_base64_data(signature_value):
     """Decodes Base64-encoded data into raw bytes."""
@@ -47,6 +48,17 @@ def replace_string_in_xml(decoded_data, old_string, new_string):
             continue
     raise ValueError("Failed to replace string in data")
 
+def strip_signature_value(decoded_data):
+    """Strips and encodes the content between <ds:SignatureValue> tags."""
+    for encoding in ['utf-8', 'iso-8859-1']:
+        try:
+            text_data = decoded_data.decode(encoding)
+            stripped_data = re.sub(r'<ds:SignatureValue>.*?</ds:SignatureValue>', '<ds:SignatureValue></ds:SignatureValue>', text_data, flags=re.DOTALL)
+            return stripped_data.encode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("Failed to strip signature value in data")
+
 def encode_to_base64(data):
     """Encodes data to Base64."""
     return base64.b64encode(data).decode('utf-8')
@@ -57,6 +69,7 @@ def parse_arguments():
     parser.add_argument('file_path', help="Path to the file containing the Base64-encoded SAML data")
     parser.add_argument('--extract', action='store_true', help="Extract emails or NameID from the SAML assertion")
     parser.add_argument('--replace', nargs=2, metavar=('old_string', 'new_string'), help="Replace old_string with new_string in the XML")
+    parser.add_argument('--strip-signature-value', action='store_true', help="Decode then strip value in between <ds:SignatureValue> and encode ir back")
     return parser.parse_args()
 
 def main():
@@ -76,6 +89,11 @@ def main():
             modified_data = replace_string_in_xml(decoded_data, old_string, new_string)
             encoded_modified_data = encode_to_base64(modified_data)
             print("Modified Base64-encoded XML:\n", encoded_modified_data)
+
+        if args.strip_signature_value:
+            stripped_data = strip_signature_value(decoded_data)
+            encoded_stripped_data = encode_to_base64(stripped_data)
+            print("Stripped and encoded Base64-encoded XML:\n", encoded_stripped_data)
 
     except Exception as e:
         print(str(e))
