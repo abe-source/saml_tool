@@ -1,7 +1,6 @@
 import base64
 import sys
 import argparse
-import xml.etree.ElementTree as ET
 import re
 
 def decode_base64_data(signature_value):
@@ -14,36 +13,37 @@ def decode_base64_data(signature_value):
     except Exception as e:
         raise ValueError(f"Decoding failed: {e}")
 
-def parse_xml(xml_data, encoding='utf-8'):
-    """Parses XML data and extracts SAML information."""
-    try:
-        root = ET.fromstring(xml_data)
-        for elem in root.iter():
-            if 'NameID' in elem.tag or 'Email' in elem.tag:
-                print(f"Found potential email or ID information: {elem.text}")
-    except ET.ParseError as e:
-        # Log where parsing failed
-        print(f"XML parsing failed: {e}")
+def find_emails(data):
+    """Finds and prints all email addresses in the given data."""
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    emails = re.findall(email_pattern, data)
+    if emails:
+        print("Extracted Emails:")
+        for email in emails:
+            print(email)
+    else:
+        print("No emails found.")
 
-def extract_and_parse_saml(decoded_data):
-    """Attempts to extract email information from SAML XML."""
+def extract_and_process_data(decoded_data):
+    """Attempts to extract email information from any decoded data."""
     for encoding in ['utf-8', 'iso-8859-1']:
         try:
             print(f"Trying to decode with encoding: {encoding}")
-            xml_data = decoded_data.decode(encoding)
-            parse_xml(xml_data)
-            return  # Exit if successful
+            text_data = decoded_data.decode(encoding)
+            find_emails(text_data)
+            break  # Exit if successful
         except UnicodeDecodeError:
             continue
-    print("Failed to decode the data with available encodings.")
+    else:
+        print("Failed to decode the data with available encodings.")
 
-def replace_string_in_xml(decoded_data, old_string, new_string):
+def modify_xml_with_replacement(decoded_data, old_string, new_string):
     """Replaces a specific string within the XML."""
     for encoding in ['utf-8', 'iso-8859-1']:
         try:
-            xml_data = decoded_data.decode(encoding)
-            modified_xml_data = xml_data.replace(old_string, new_string)
-            return modified_xml_data.encode(encoding)
+            text_data = decoded_data.decode(encoding)
+            modified_data = text_data.replace(old_string, new_string)
+            return modified_data.encode(encoding)
         except UnicodeDecodeError:
             continue
     raise ValueError("Failed to replace string in data")
@@ -53,7 +53,7 @@ def strip_signature_value(decoded_data):
     for encoding in ['utf-8', 'iso-8859-1']:
         try:
             text_data = decoded_data.decode(encoding)
-            stripped_data = re.sub(r'<ds:SignatureValue>.*?</ds:SignatureValue>', '<ds:SignatureValue></ds:SignatureValue>', text_data, flags=re.DOTALL)
+            stripped_data = re.sub(r'(<ds:SignatureValue>).*?(</ds:SignatureValue>)', r'\1\2', text_data, flags=re.DOTALL)
             return stripped_data.encode(encoding)
         except UnicodeDecodeError:
             continue
@@ -69,7 +69,7 @@ def parse_arguments():
     parser.add_argument('file_path', help="Path to the file containing the Base64-encoded SAML data")
     parser.add_argument('--extract', action='store_true', help="Extract emails or NameID from the SAML assertion")
     parser.add_argument('--replace', nargs=2, metavar=('old_string', 'new_string'), help="Replace old_string with new_string in the XML")
-    parser.add_argument('--strip-signature-value', action='store_true', help="Decode then strip value in between <ds:SignatureValue> and encode ir back")
+    parser.add_argument('--strip-signature-value', action='store_true', help="Decode then strip value between <ds:SignatureValue> tags and encode it back")
     return parser.parse_args()
 
 def main():
@@ -81,19 +81,28 @@ def main():
 
         decoded_data = decode_base64_data(signature_value)
 
-        if args.extract:
-            extract_and_parse_saml(decoded_data)
+        # Flag to check if any modification is done
+        modified = False
 
+        # Handle signature value stripping
+        if args.strip_signature_value:
+            decoded_data = strip_signature_value(decoded_data)
+            modified = True
+
+        # Handle string replacement
         if args.replace:
             old_string, new_string = args.replace
-            modified_data = replace_string_in_xml(decoded_data, old_string, new_string)
-            encoded_modified_data = encode_to_base64(modified_data)
-            print("Modified Base64-encoded XML:\n", encoded_modified_data)
+            decoded_data = modify_xml_with_replacement(decoded_data, old_string, new_string)
+            modified = True
 
-        if args.strip_signature_value:
-            stripped_data = strip_signature_value(decoded_data)
-            encoded_stripped_data = encode_to_base64(stripped_data)
-            print("Stripped and encoded Base64-encoded XML:\n", encoded_stripped_data)
+        # After modifications, encode the result back to Base64 and print only if modified
+        if modified:
+            encoded_modified_data = encode_to_base64(decoded_data)
+            print("Processed Base64-encoded XML:\n", encoded_modified_data)
+
+        # Handle email extraction
+        if args.extract:
+            extract_and_process_data(decoded_data)
 
     except Exception as e:
         print(str(e))
